@@ -11,7 +11,13 @@
 
 import { isPluginEnabled, loadConfig } from "./config.mjs";
 import { createLogger } from "./debug-log.mjs";
-import { commitSession, deriveOvSessionId, isBypassed, makeFetchJSON } from "./lib/ov-session.mjs";
+import {
+  commitSession,
+  deriveOvSessionId,
+  isBypassed,
+  isRetryableFailure,
+  makeFetchJSON,
+} from "./lib/ov-session.mjs";
 import { maybeDetach, readHookStdin } from "./lib/async-writer.mjs";
 
 if (!isPluginEnabled()) {
@@ -60,7 +66,14 @@ async function main() {
   const ovSessionId = deriveOvSessionId(sessionId);
   const health = await fetchJSON("/health");
   if (!health.ok) {
-    logError("health_check", "server unreachable");
+    if (isRetryableFailure(health)) {
+      logError("health_check", "server unreachable, enqueuing commit");
+      // Enqueue the commit for replay on next session-start.
+      const { enqueue } = await import("./lib/pending-queue.mjs");
+      await enqueue("commitSession", ovSessionId, {});
+    } else {
+      logError("health_check", `non-retryable status ${health.status || "unknown"}`);
+    }
     approve();
     return;
   }

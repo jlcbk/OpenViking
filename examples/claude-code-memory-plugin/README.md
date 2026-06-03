@@ -191,6 +191,23 @@ All plugin behavior can be set via env vars. Connection / identity vars affect b
 | `OPENVIKING_COMMIT_TOKEN_THRESHOLD`    | `20000`      | Pending-token threshold for client-driven commit                         |
 | `OPENVIKING_RESUME_CONTEXT_BUDGET`     | `32000`      | Token budget when fetching archive overview on session resume            |
 
+#### Offline pending queue
+
+The pending queue is client-side. It lives on the machine that runs Claude Code
+and the plugin hooks, not on the OpenViking server. It only protects payloads
+after a hook has run and an OpenViking HTTP write failed; it cannot recover
+events from a hard kill or crash where hooks never ran.
+
+Pending files may contain raw memory payloads from the transcript. Treat
+`~/.openviking/pending/` as local private data.
+
+| Env Var                                 | Default                  | Description                                                              |
+|-----------------------------------------|--------------------------|--------------------------------------------------------------------------|
+| `OPENVIKING_PENDING_DIR`                | `~/.openviking/pending`  | Local directory for failed write payloads                                |
+| `OPENVIKING_PENDING_MAX_RETRIES`        | `3`                      | Max retry attempts before a pending item is dropped                      |
+| `OPENVIKING_PENDING_TTL_DAYS`           | `7`                      | Max age in days before a pending item is considered stale                |
+| `OPENVIKING_PENDING_REPLAY_LIMIT`       | `50`                     | Max pending items replayed during one SessionStart                       |
+
 #### Lifecycle / behavior / misc
 
 | Env Var                                | Default      | Description                                                              |

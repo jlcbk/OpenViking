@@ -106,6 +106,22 @@ export function makeFetchJSON(cfg, timeoutKey = "timeoutMs") {
   };
 }
 
+export function isRetryableFailure(res) {
+  if (!res || res.ok) return false;
+  const status = Number(res.status || 0);
+  return !status || status >= 500 || status === 408 || status === 429;
+}
+
+function warnNonRetryable(operation, res) {
+  const status = res?.status || "unknown";
+  const msg = res?.error?.message || res?.error?.code || "";
+  process.stderr.write(
+    `[ov] ${operation} failed with non-retryable status ${status}; not enqueuing pending retry` +
+      (msg ? ` (${msg})` : "") +
+      "\n",
+  );
+}
+
 /**
  * Add a message to the persistent OV session. The server auto-creates the
  * session on first message via /sessions/{id}/messages (see add_message in
@@ -113,23 +129,48 @@ export function makeFetchJSON(cfg, timeoutKey = "timeoutMs") {
  *
  * `payload` accepts either { role, content } (simple string) or
  * { role, parts: [...] } (parts-mode, for tier-1 structured capture).
+ *
+ * On retryable failure (network error, timeout, 5xx, 408, 429), the payload
+ * is automatically enqueued to the local pending queue for replay on next
+ * session-start. Non-retryable 4xx failures are warned but not queued.
  */
 export async function addMessage(fetchJSON, sessionId, payload) {
-  return fetchJSON(`/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
+  const res = await fetchJSON(`/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  if (!res.ok) {
+    if (isRetryableFailure(res)) {
+      const { enqueue } = await import("./pending-queue.mjs");
+      await enqueue("addMessage", sessionId, payload);
+    } else {
+      warnNonRetryable("addMessage", res);
+    }
+  }
+  return res;
 }
 
 /**
  * Commit the persistent OV session (archive + background extract). Safe to
  * call repeatedly: if there are no pending messages the server is a no-op.
+ *
+ * On retryable failure, the commit intent is enqueued to the local pending
+ * queue for replay on next session-start.
  */
 export async function commitSession(fetchJSON, sessionId) {
-  return fetchJSON(`/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
+  const res = await fetchJSON(`/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
     method: "POST",
     body: JSON.stringify({}),
   });
+  if (!res.ok) {
+    if (isRetryableFailure(res)) {
+      const { enqueue } = await import("./pending-queue.mjs");
+      await enqueue("commitSession", sessionId, {});
+    } else {
+      warnNonRetryable("commitSession", res);
+    }
+  }
+  return res;
 }
 
 /**

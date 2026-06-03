@@ -33,6 +33,7 @@ import {
   makeFetchJSON,
 } from "./lib/ov-session.mjs";
 import { buildProfileBlock, estimateTokens } from "./lib/profile-inject.mjs";
+import { replayPending } from "./lib/pending-queue.mjs";
 import { writeJsonState } from "./lib/state.mjs";
 
 if (!isPluginEnabled()) {
@@ -112,20 +113,32 @@ async function main() {
     return;
   }
 
-  // Short-circuit before the network probe when neither injection path will
-  // run for this source/config combination. Saves a /health call and avoids
-  // misleading "server unreachable" log noise when injection is disabled.
   const willInjectProfile = !cfg.noAutoInject;
   const willInjectArchive = (source === "resume" || source === "compact") && !!sessionId;
-  if (!willInjectProfile && !willInjectArchive) {
-    log("skip", { reason: "no_injection_planned", source, noAutoInject: cfg.noAutoInject });
-    approve();
-    return;
-  }
 
   const health = await fetchJSON("/health");
   if (!health.ok) {
     logError("health_check", "server unreachable");
+    approve();
+    return;
+  }
+
+  // Replay any pending operations from previous sessions that failed to write.
+  // This is independent from profile/archive injection; even when the caller
+  // disabled injection, pending writes should still be recovered.
+  try {
+    const replayResult = await replayPending(fetchJSON, log);
+    if (replayResult.replayed > 0 || replayResult.failed > 0) {
+      log("pending-replay", replayResult);
+    }
+  } catch (err) {
+    logError("pending-replay", err);
+  }
+
+  // Short-circuit after replay when neither injection path will run for this
+  // source/config combination.
+  if (!willInjectProfile && !willInjectArchive) {
+    log("skip", { reason: "no_injection_planned", source, noAutoInject: cfg.noAutoInject });
     approve();
     return;
   }

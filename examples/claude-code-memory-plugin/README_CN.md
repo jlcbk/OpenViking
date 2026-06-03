@@ -191,6 +191,23 @@ claude() {
 | `OPENVIKING_COMMIT_TOKEN_THRESHOLD`    | `20000`       | client-driven commit 的 pending-token 阈值                         |
 | `OPENVIKING_RESUME_CONTEXT_BUDGET`     | `32000`       | resume 时拉取 archive overview 的 token 预算                       |
 
+#### 离线 pending queue
+
+pending queue 是客户端本地队列，位于运行 Claude Code 和插件 hooks 的那台机器，
+不在远程 OpenViking server 上。它只保护“hook 已经运行，并且 OpenViking HTTP
+写入失败”的 payload；如果 Claude Code 被强杀或崩溃导致 hook 根本没有运行，
+pending queue 无法凭空生成补传任务。
+
+pending 文件可能包含从 transcript 中提取的原始记忆 payload。请把
+`~/.openviking/pending/` 当成本地隐私数据处理。
+
+| 环境变量                                  | 默认值                    | 说明                                                              |
+|------------------------------------------|---------------------------|------------------------------------------------------------------|
+| `OPENVIKING_PENDING_DIR`                 | `~/.openviking/pending`   | 失败写入 payload 的本地目录                                      |
+| `OPENVIKING_PENDING_MAX_RETRIES`         | `3`                       | 单条 pending 最大重试次数，超过后丢弃                            |
+| `OPENVIKING_PENDING_TTL_DAYS`            | `7`                       | pending 条目最长保留天数                                         |
+| `OPENVIKING_PENDING_REPLAY_LIMIT`        | `50`                      | 单次 SessionStart 最多 replay 的 pending 条数                    |
+
 #### 生命周期 / 行为 / 杂项
 
 | 环境变量                                | 默认值        | 说明                                                                |

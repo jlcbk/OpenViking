@@ -113,16 +113,8 @@ async function main() {
     return;
   }
 
-  // Short-circuit before the network probe when neither injection path will
-  // run for this source/config combination. Saves a /health call and avoids
-  // misleading "server unreachable" log noise when injection is disabled.
   const willInjectProfile = !cfg.noAutoInject;
   const willInjectArchive = (source === "resume" || source === "compact") && !!sessionId;
-  if (!willInjectProfile && !willInjectArchive) {
-    log("skip", { reason: "no_injection_planned", source, noAutoInject: cfg.noAutoInject });
-    approve();
-    return;
-  }
 
   const health = await fetchJSON("/health");
   if (!health.ok) {
@@ -132,7 +124,8 @@ async function main() {
   }
 
   // Replay any pending operations from previous sessions that failed to write.
-  // This runs before any new injection to ensure recovered data is available.
+  // This is independent from profile/archive injection; even when the caller
+  // disabled injection, pending writes should still be recovered.
   try {
     const replayResult = await replayPending(fetchJSON, log);
     if (replayResult.replayed > 0 || replayResult.failed > 0) {
@@ -140,6 +133,14 @@ async function main() {
     }
   } catch (err) {
     logError("pending-replay", err);
+  }
+
+  // Short-circuit after replay when neither injection path will run for this
+  // source/config combination.
+  if (!willInjectProfile && !willInjectArchive) {
+    log("skip", { reason: "no_injection_planned", source, noAutoInject: cfg.noAutoInject });
+    approve();
+    return;
   }
 
   // 1. Profile injection — every source unless explicitly disabled.

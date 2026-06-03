@@ -33,6 +33,7 @@ import {
   makeFetchJSON,
 } from "./lib/ov-session.mjs";
 import { buildProfileBlock, estimateTokens } from "./lib/profile-inject.mjs";
+import { replayPending } from "./lib/pending-queue.mjs";
 import { writeJsonState } from "./lib/state.mjs";
 
 if (!isPluginEnabled()) {
@@ -128,6 +129,17 @@ async function main() {
     logError("health_check", "server unreachable");
     approve();
     return;
+  }
+
+  // Replay any pending operations from previous sessions that failed to write.
+  // This runs before any new injection to ensure recovered data is available.
+  try {
+    const replayResult = await replayPending(fetchJSON, log);
+    if (replayResult.replayed > 0 || replayResult.failed > 0) {
+      log("pending-replay", replayResult);
+    }
+  } catch (err) {
+    logError("pending-replay", err);
   }
 
   // 1. Profile injection — every source unless explicitly disabled.

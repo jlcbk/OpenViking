@@ -113,23 +113,39 @@ export function makeFetchJSON(cfg, timeoutKey = "timeoutMs") {
  *
  * `payload` accepts either { role, content } (simple string) or
  * { role, parts: [...] } (parts-mode, for tier-1 structured capture).
+ *
+ * On failure (network error, timeout, 5xx), the payload is automatically
+ * enqueued to the local pending queue for replay on next session-start.
  */
 export async function addMessage(fetchJSON, sessionId, payload) {
-  return fetchJSON(`/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
+  const res = await fetchJSON(`/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  if (!res.ok) {
+    const { enqueue } = await import("./pending-queue.mjs");
+    await enqueue("addMessage", sessionId, payload);
+  }
+  return res;
 }
 
 /**
  * Commit the persistent OV session (archive + background extract). Safe to
  * call repeatedly: if there are no pending messages the server is a no-op.
+ *
+ * On failure, the commit intent is enqueued to the local pending queue
+ * for replay on next session-start.
  */
 export async function commitSession(fetchJSON, sessionId) {
-  return fetchJSON(`/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
+  const res = await fetchJSON(`/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
     method: "POST",
     body: JSON.stringify({}),
   });
+  if (!res.ok) {
+    const { enqueue } = await import("./pending-queue.mjs");
+    await enqueue("commitSession", sessionId, {});
+  }
+  return res;
 }
 
 /**

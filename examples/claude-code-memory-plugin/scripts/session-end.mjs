@@ -60,7 +60,10 @@ async function main() {
   const ovSessionId = deriveOvSessionId(sessionId);
   const health = await fetchJSON("/health");
   if (!health.ok) {
-    logError("health_check", "server unreachable");
+    logError("health_check", "server unreachable, enqueuing commit");
+    // Enqueue the commit for replay on next session-start
+    const { enqueue } = await import("./lib/pending-queue.mjs");
+    await enqueue("commitSession", ovSessionId, {});
     approve();
     return;
   }
